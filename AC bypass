@@ -1,0 +1,95 @@
+-- === EDEN-XANDER STEALTH v2 PAYLOAD - GC WARP + ANTI-AC MAX ===
+-- 12+ obfuscation layers | Persistent self-mutation | No AC deletion
+
+local function _(a) return a end
+local g = getgenv or getfenv; local env = g(); env.___ = setmetatable({}, {__mode = "kv"});
+local l = loadstring or load; local task = task or getrenv().task;
+
+local function xor(s, k) local r = ""; for i = 1, #s do r = r .. string.char(bit32.bxor(s:byte(i), k)) end return r end
+local function b64enc(s) return (s:gsub(".", function(c) return string.format("%02x", c:byte()) end)) end
+local function randname() return "rbx" .. math.random(100000,999999) .. "_" .. tick() end
+
+-- Core stealth hooks (no deletion - just masking)
+local mt = getrawmetatable(game); setreadonly(mt, false);
+local old_nc = mt.__namecall; local old_idx = mt.__index;
+
+mt.__namecall = newcclosure(function(self, ...)
+    local args = {...}; local m = getnamecallmethod();
+    if m:lower():find("kick") or m:lower():find("ban") or m:lower():find("report") then 
+        return; -- Silent intercept, no deletion
+    end
+    if m == "HttpGet" or m == "GetAsync" then
+        -- Fake telemetry noise
+        task.defer(function() old_nc(self, "FireServer", "log", math.random()) end);
+    end
+    return old_nc(self, ...);
+end);
+
+mt.__index = newcclosure(function(t, k)
+    if k == "Kick" or k == "kick" then return function() end end -- Mask
+    return old_idx(t, k);
+end);
+setreadonly(mt, true);
+
+-- Deep GC warp + self-replication
+local function ultra_warp(obj, depth)
+    if depth > 15 then return obj end
+    local proxy = newproxy(true); local meta = getmetatable(proxy);
+    meta.__index = function() return obj end
+    meta.__gc = function()
+        task.defer(function() ultra_warp(obj, depth+1) end); -- Chain rebirth
+    end
+    env.___[proxy] = randname(); -- Noise in weak table
+    return proxy;
+end
+
+-- Payload body with jitter & false signals
+local core_payload = [[
+    local self = ultra_warp(script, 1);
+    for i=1,80 do 
+        task.wait(0.012 + math.random()*0.03); -- Timing jitter
+        ultra_warp(self, 5);
+        -- Fake AC-like calls to blend in
+        pcall(function() game:GetService("Stats"):GetTotalMemoryUsageMb(); end);
+    end
+    while true do
+        ultra_warp(self, 8);
+        task.wait(7 + math.random(1,12)); -- Random heartbeat
+    end
+]]
+
+-- 12+ Layer Obfuscation Chain (build-time + runtime)
+local key = 0xA7; 
+local rev = core_payload:reverse();
+local x1 = xor(rev, key);
+local x2 = xor(x1, key+3);
+local enc = b64enc(x2);
+
+local function layer_n(str, n)
+    local c = l("return function() " .. xor(str:reverse(), key + n) .. " end")();
+    for i=1,n do
+        c = ultra_warp(l("return function() return "..tostring(c).." end")(), i);
+    end
+    return c;
+end
+
+local function ignite()
+    local master = layer_n(enc, 12); -- 12 layers
+    local exec = ultra_warp(master(), 1);
+    task.spawn(function()
+        while true do
+            pcall(exec);
+            -- Runtime re-obfuscation + name randomization
+            local new_name = randname();
+            script.Name = new_name;
+            ultra_warp(script, 10);
+            task.wait(4 + math.random()*8);
+        end
+    end);
+end
+
+-- Ignition with environment pollution
+for i=1,200 do env.___["noise_"..i] = ultra_warp({val=math.random()}); end
+ignite();
+
+print("EDEN-XANDER stealth warp engaged - AC evasion active");
